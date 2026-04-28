@@ -12,7 +12,8 @@ from whatsapp import (
     send_message as whatsapp_send_message,
     send_file as whatsapp_send_file,
     send_audio_message as whatsapp_audio_voice_message,
-    download_media as whatsapp_download_media
+    download_media as whatsapp_download_media,
+    get_group_participants as whatsapp_get_group_participants
 )
 
 # Initialize FastMCP server
@@ -157,7 +158,8 @@ def get_message_context(
 @mcp.tool()
 def send_message(
     recipient: str,
-    message: str
+    message: str,
+    mentioned_jid: list = None
 ) -> Dict[str, Any]:
     """Send a WhatsApp message to a person or group. For group chats use the JID.
 
@@ -165,7 +167,9 @@ def send_message(
         recipient: The recipient - either a phone number with country code but no + or other symbols,
                  or a JID (e.g., "123456789@s.whatsapp.net" or a group JID like "123456789@g.us")
         message: The message text to send
-    
+        mentioned_jid: Optional list of JIDs to mention/tag in the message (e.g., ["972501234567@s.whatsapp.net"]).
+                      The mentioned user's name should appear in the message text prefixed with @.
+
     Returns:
         A dictionary containing success status and a status message
     """
@@ -175,13 +179,25 @@ def send_message(
             "success": False,
             "message": "Recipient must be provided"
         }
-    
+
     # Call the whatsapp_send_message function with the unified recipient parameter
-    success, status_message = whatsapp_send_message(recipient, message)
+    success, status_message = whatsapp_send_message(recipient, message, mentioned_jid)
     return {
         "success": success,
         "message": status_message
     }
+
+@mcp.tool()
+def get_group_members(group_jid: str) -> Dict[str, Any]:
+    """Get the list of participants/members in a WhatsApp group with their phone numbers and JIDs.
+
+    Args:
+        group_jid: The group JID (e.g., "123456789@g.us")
+
+    Returns:
+        A dictionary containing group name and list of participants with JIDs and phone numbers
+    """
+    return whatsapp_get_group_participants(group_jid)
 
 @mcp.tool()
 def send_file(recipient: str, media_path: str) -> Dict[str, Any]:

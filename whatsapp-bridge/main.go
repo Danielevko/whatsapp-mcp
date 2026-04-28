@@ -197,13 +197,14 @@ type SendMessageResponse struct {
 
 // SendMessageRequest represents the request body for the send message API
 type SendMessageRequest struct {
-	Recipient string `json:"recipient"`
-	Message   string `json:"message"`
-	MediaPath string `json:"media_path,omitempty"`
+	Recipient    string   `json:"recipient"`
+	Message      string   `json:"message"`
+	MediaPath    string   `json:"media_path,omitempty"`
+	MentionedJid []string `json:"mentioned_jid,omitempty"`
 }
 
 // Function to send a WhatsApp message
-func sendWhatsAppMessage(client *whatsmeow.Client, recipient string, message string, mediaPath string) (bool, string) {
+func sendWhatsAppMessage(client *whatsmeow.Client, recipient string, message string, mediaPath string, mentionedJid []string) (bool, string) {
 	if !client.IsConnected() {
 		return false, "Not connected to WhatsApp"
 	}
@@ -356,6 +357,13 @@ func sendWhatsAppMessage(client *whatsmeow.Client, recipient string, message str
 				FileSHA256:    resp.FileSHA256,
 				FileLength:    &resp.FileLength,
 			}
+		}
+	} else if len(mentionedJid) > 0 {
+		msg.ExtendedTextMessage = &waProto.ExtendedTextMessage{
+			Text: proto.String(message),
+			ContextInfo: &waProto.ContextInfo{
+				MentionedJID: mentionedJid,
+			},
 		}
 	} else {
 		msg.Conversation = proto.String(message)
@@ -706,7 +714,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		fmt.Println("Received request to send message", req.Message, req.MediaPath)
 
 		// Send the message
-		success, message := sendWhatsAppMessage(client, req.Recipient, req.Message, req.MediaPath)
+		success, message := sendWhatsAppMessage(client, req.Recipient, req.Message, req.MediaPath, req.MentionedJid)
 		fmt.Println("Message sent", success, message)
 		// Set response headers
 		w.Header().Set("Content-Type", "application/json")
@@ -771,6 +779,60 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Message:  fmt.Sprintf("Successfully downloaded %s media", mediaType),
 			Filename: filename,
 			Path:     path,
+		})
+	})
+
+	// Handler for getting group participants
+	http.HandleFunc("/api/group-info", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		groupJID := r.URL.Query().Get("jid")
+		if groupJID == "" {
+			http.Error(w, "jid parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		jid, err := types.ParseJID(groupJID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Invalid JID: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		groupInfo, err := client.GetGroupInfo(context.Background(), jid)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": fmt.Sprintf("Failed to get group info: %v", err),
+			})
+			return
+		}
+
+		type ParticipantInfo struct {
+			JID         string `json:"jid"`
+			PhoneNumber string `json:"phone_number,omitempty"`
+			IsAdmin     bool   `json:"is_admin"`
+		}
+
+		participants := make([]ParticipantInfo, len(groupInfo.Participants))
+		for i, p := range groupInfo.Participants {
+			participants[i] = ParticipantInfo{
+				JID:         p.JID.String(),
+				PhoneNumber: p.PhoneNumber.String(),
+				IsAdmin:     p.IsAdmin || p.IsSuperAdmin,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"name":         groupInfo.GroupName.Name,
+			"owner":        groupInfo.OwnerJID.String(),
+			"participants": participants,
 		})
 	})
 

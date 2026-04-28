@@ -622,17 +622,19 @@ def get_direct_chat_by_contact(sender_phone_number: str) -> Optional[Chat]:
         if 'conn' in locals():
             conn.close()
 
-def send_message(recipient: str, message: str) -> Tuple[bool, str]:
+def send_message(recipient: str, message: str, mentioned_jid: list = None) -> Tuple[bool, str]:
     try:
         # Validate input
         if not recipient:
             return False, "Recipient must be provided"
-        
+
         url = f"{WHATSAPP_API_BASE_URL}/send"
         payload = {
             "recipient": recipient,
             "message": message,
         }
+        if mentioned_jid:
+            payload["mentioned_jid"] = mentioned_jid
         
         response = requests.post(url, json=payload)
         
@@ -649,6 +651,17 @@ def send_message(recipient: str, message: str) -> Tuple[bool, str]:
         return False, f"Error parsing response: {response.text}"
     except Exception as e:
         return False, f"Unexpected error: {str(e)}"
+
+def get_group_participants(group_jid: str) -> dict:
+    try:
+        url = f"{WHATSAPP_API_BASE_URL}/group-info"
+        response = requests.get(url, params={"jid": group_jid})
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"success": False, "message": f"Error: HTTP {response.status_code} - {response.text}"}
+    except Exception as e:
+        return {"success": False, "message": f"Unexpected error: {str(e)}"}
 
 def send_file(recipient: str, media_path: str) -> Tuple[bool, str]:
     try:
